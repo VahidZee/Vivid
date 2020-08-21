@@ -1,0 +1,102 @@
+# files and directories
+.*
+.*/
+
+# project
+.DS_Store
+run_configs/
+model_weights/
+app/models/
+pip-wheel-metadata/
+lightning_logs/
+.vscode/
+
+# Test-tube
+test_tube_logs/
+test_tube_data/
+test_tube_exp/
+
+# Documentations
+docs/source/api
+docs/source/*.md
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+timit_data/
+
+
+# C extensions
+*.so
+
+# Distribution / packaging
+ide_layouts/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+
+tests/tests_tt_dir/
+tests/save_dir
+tests/tests/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+
+# Flask stuff:
+instance/
+
+# Sphinx documentation
+docs/build/
+
+# PyBuilder
+target/
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# virtualenv
+venv/
+env/
+ENV/
+
+# mkdocs documentation
+/site
+
+# data & runs
+mnist/
+datasets/
+*.ckpt
+
