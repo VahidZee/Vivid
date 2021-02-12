@@ -1,7 +1,6 @@
 import typing as th
 import functools
 from .exceptions import VariableLookupException
-import vivid.utilities.parse as parse
 import vivid.utilities.variables.lookup as lookup
 
 CONTEXT_TYPE = th.Union[str, th.Any]
@@ -23,7 +22,7 @@ class Var:
             self,
             name: th.Optional[th.Union[str, th.List[str]]] = None,
             context: th.Optional[th.Union[th.List[CONTEXT_TYPE], CONTEXT_TYPE]] = None,
-            is_active: th.Union[bool, th.Any] = True,
+            active: th.Union[bool, th.Any] = True,
             lookup_function: th.Union[LOOKUP_OPTIONS, th.Callable] = 'evaluate',
             decorator: th.Optional[DECORATOR_TYPE] = None,
             **kwargs: th.Optional[th.OrderedDict[str, th.Union[th.Any, th.Dict[str, th.Any]]]]  # [default], decorators
@@ -43,7 +42,7 @@ class Var:
         self.default_set = False
 
         self.decorator = decorator
-        self.active = is_active
+        self.active = active
         self.default = None
 
         # default value setup
@@ -67,37 +66,50 @@ class Var:
             count_names = len(self.name) if isinstance(self.name, (list, tuple)) else 1
             count_contexts = len(self.context) if isinstance(self.context, (list, tuple)) else 1
             choices_count = max(count_names, count_contexts)
-            self.__names = self.name if count_names == choices_count else [self.name] * choices_count
-            self.__contexts = self.context if count_contexts == choices_count else [self.context] * choices_count
-            assert count_names == count_contexts or count_names == 1 or count_contexts == 1, \
-                'inconsistent number of values are provided'
-            self.priority_lookup = True
+            if not choices_count == 1:
+                self._names = self.name if count_names == choices_count else [self.name] * choices_count
+                self._contexts = self.context if count_contexts == choices_count else [self.context] * choices_count
+
+                assert count_names == count_contexts or count_names == 1 or count_contexts == 1, \
+                    'inconsistent number of values are provided'
+                self.priority_lookup = True
+            else:
+                self.name = self.name[0] if isinstance(self.name, (tuple, list)) else self.name
+                self.context = self.context[0] if isinstance(self.context, (tuple, list)) else self.context
 
         # decorators setup
         decorators = kwargs
         num_decorators = len(decorators) + (1 if decorator else 0)
-        self.__value_decorators = [self.value]
+        self._value_decorators = [self.value]
         for i, (name, value) in enumerate(decorators.items()):
             dec = self.__initialize_var_decorator(name, value) if hasattr(Var, name) else value
-            self.__value_decorators.append(self.__decorate_value(self.__value_decorators[-1], dec))
+            self._value_decorators.append(self.__decorate_value(self._value_decorators[-1], dec))
 
         if decorator is not None:
-            self.__value_decorators.append(self.__decorate_value(self.__value_decorators[-1], decorator))
+            self._value_decorators.append(self.__decorate_value(self._value_decorators[-1], decorator))
 
         if num_decorators:
-            self.value = functools.wraps(self.__value_decorators[0])(
-                lambda *args, context_level=1, **kwargs: self.__value_decorators[-1](
+            self.value = functools.wraps(self._value_decorators[0])(
+                lambda *args, context_level=1, **kwargs: self._value_decorators[-1](
                     *args, context_level=context_level + num_decorators + 1, **kwargs)
             )
 
-    def is_active(self, prefix: th.Optional[str] = None, context_level=1):
+    def is_active(self, prefix: th.Optional[str] = None, name: th.Optional[str] = None, context_level=1):
         """indicates whether this variable should be looked up!"""
+        if Var.log_lookup:
+            print(f'check is active: {self}')
         if isinstance(self.active, Var):
-            return self.active.value(prefix=prefix, name='active', context_level=context_level + 1)
-        if isinstance(self.active, str) or callable(self.active):
-            return Var(name=self.name, context=self.context, lookup_function=self.active).value(
-                prefix=prefix, context_level=context_level + 1)
-        return self.active
+            result = self.active.value(prefix=prefix, name='active', context_level=context_level + 1)
+        elif isinstance(self.active, str) or callable(self.active):
+            names = self._names if self.priority_lookup else [self.name]
+            names = [s or name for s in names]
+            result = Var(name=names, context=self.context,
+                         lookup_function=self.active).value(prefix=prefix, context_level=context_level + 1)
+        else:
+            result = self.active
+        if Var.log_lookup:
+            print(f'\t active: {result}')
+        return result
 
     # decoration
     @staticmethod
@@ -133,14 +145,16 @@ class Var:
         return functools.partial(lookup.get_value, context=context, strict=strict)
 
     def value(self, name=None, prefix=None, defaults=None, context_level=1, strict=False):
+        names = self._names if self.priority_lookup else [self.name if not strict else name]
+        names = [s or name for s in names]
         local_context = lookup.local_context(context_level=context_level + 1, verbose=Var.log_lookup_frames)
-        names = self.__names if self.priority_lookup else [(self.name or name) if not strict else name]
-        contexts = self.__contexts if self.priority_lookup else [self.context]
+        contexts = self._contexts if self.priority_lookup else [self.context]
 
         if self.log_lookup or self.log_lookup_frames:
             print(f'lookup: {names} in context: {contexts}')
+
         if prefix is not None:
-            names = [f'{prefix}_{i}' for i in names] + names
+            names = [f'{prefix}_{i}' if i is not None else prefix for i in names] + names
             contexts = contexts + contexts
         base_defaults = defaults or dict()
         for name, context in zip(names, contexts):
@@ -148,13 +162,18 @@ class Var:
                 context = lookup.get_context(context=context, local_context_dict=local_context)
                 defaults = lookup.evaluate_in_context(
                     name='defaults', context=local_context, strict=False) or base_defaults
-                return self.__lookup_value(name=name, context=context, defaults=defaults)
+                result = self.__lookup_value(name=name, context=context, defaults=defaults)
+                if Var.log_lookup:
+                    print(f'\t value: {result}')
+                return result
             except (VariableLookupException, KeyError, AttributeError):
                 pass
 
         if self.default_set and not strict:
+            if Var.log_lookup:
+                print(f'\t value-default: {self.default}')
             return self.default
-        raise VariableLookupException(f'no value was found for [{names}]')
+        raise VariableLookupException(f'no value was found for {names}')
 
     def __repr__(self):
         args = []
